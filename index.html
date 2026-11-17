@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Model Studio — GenAI Genesis</title>
+<meta name="theme-color" content="#eed4fd">
+<meta name="description" content="Pose GenAI Genesis 3D models and export high-res PNGs, up to 8K, with transparent backgrounds.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Model Studio — GenAI Genesis">
+<meta property="og:description" content="Pose our 3D models and export 4K PNGs.">
+<meta property="og:image" content="https://zainswe.github.io/model-studio/og.png">
+<meta property="og:url" content="https://zainswe.github.io/model-studio/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23e09dff'/%3E%3Cstop offset='.5' stop-color='%238f7ce6'/%3E%3Cstop offset='1' stop-color='%2300ffdd'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400..800&display=swap">
+<link rel="stylesheet" href="./studio.css">
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<main class="studio">
+  <section class="stage" id="stage" data-bg="transparent" aria-label="3D viewport">
+    <canvas id="view"></canvas>
+    <div class="frame" id="frame" aria-hidden="true"><span class="frame-label" id="frameLabel">3840 × 2160</span></div>
+    <div class="modes seg" id="modes" role="radiogroup" aria-label="Drag mode">
+      <button type="button" role="radio" data-mode="orbit" aria-checked="true">Orbit camera</button>
+      <button type="button" role="radio" data-mode="turn" aria-checked="false">Turn model</button>
+    </div>
+    <p class="hint" id="hint"></p>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </section>
+
+  <aside class="panel">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div><h1>Model Studio</h1><p>Pose it, frame it, export it.</p></div>
+    </header>
+
+    <div class="group">
+      <label class="field"><span>Model</span><select id="model"></select></label>
+      <div class="field"><span>Palette</span><div class="seg" id="palette" role="radiogroup"></div></div>
+    </div>
+
+    <div class="group">
+      <div class="group-head"><h2>Pose</h2><button class="link" id="resetPose" type="button">Reset</button></div>
+      <label class="slider"><span>Yaw</span><input type="range" id="yaw" min="-180" max="180" step="1" value="0"><output for="yaw">0°</output></label>
+      <label class="slider"><span>Pitch</span><input type="range" id="pitch" min="-90" max="90" step="1" value="0"><output for="pitch">0°</output></label>
+      <label class="slider"><span>Roll</span><input type="range" id="roll" min="-180" max="180" step="1" value="0"><output for="roll">0°</output></label>
+    </div>
+
+    <div class="group">
+      <div class="group-head"><h2>Camera</h2><button class="link" id="frameBtn" type="button" title="Fit the model inside the export frame (F)">Frame model</button></div>
+      <div class="chips" id="presets"></div>
+      <label class="slider"><span>Lens</span><input type="range" id="fov" min="8" max="60" step="1" value="18"><output for="fov">18°</output></label>
+      <label class="slider"><span>Fill</span><input type="range" id="fill" min="40" max="98" step="1" value="84"><output for="fill">84%</output></label>
+    </div>
+
+    <div class="group">
+      <h2>Look</h2>
+      <label class="slider"><span>Light</span><input type="range" id="light" min="0" max="360" step="1" value="139"><output for="light">139°</output></label>
+      <label class="check"><input type="checkbox" id="grain"> Film grain (as on the site)</label>
+    </div>
+
+    <div class="group">
+      <h2>Export</h2>
+      <label class="field"><span>Size</span>
+        <select id="size">
+          <option value="3840x2160" selected>4K UHD · 3840 × 2160</option>
+          <option value="2160x3840">4K portrait · 2160 × 3840</option>
+          <option value="4096x4096">Square · 4096 × 4096</option>
+          <option value="4096x2160">4K DCI · 4096 × 2160</option>
+          <option value="7680x4320">8K · 7680 × 4320</option>
+          <option value="1920x1080">HD · 1920 × 1080</option>
+        </select>
+      </label>
+      <div class="field"><span>Background</span>
+        <div class="swatches" id="bg" role="radiogroup">
+          <button type="button" data-bg="transparent" class="sw sw-clear" title="Transparent" aria-pressed="true"></button>
+          <button type="button" data-bg="#ece6fb" title="Haze #ece6fb" style="--c:#ece6fb" aria-pressed="false"></button>
+          <button type="button" data-bg="#ffffff" title="White" style="--c:#ffffff" aria-pressed="false"></button>
+          <button type="button" data-bg="#0f0a20" title="Night #0f0a20" style="--c:#0f0a20" aria-pressed="false"></button>
+          <label class="sw sw-pick" title="Custom colour"><input type="color" id="bgCustom" value="#2a1f55"></label>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="ss" checked> Supersample 2× (smoother edges)</label>
+      <div class="cta">
+        <button class="primary" id="shoot" type="button">Generate 4K PNG</button>
+        <p class="fine" id="shootNote">Exports exactly what’s in the frame<span class="kbd-only"> · shortcut S</span></p>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<dialog class="result" id="result" aria-labelledby="resultTitle">
+  <form method="dialog" class="result-card">
+    <div class="result-head"><h2 id="resultTitle">Your PNG is ready</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+    <div class="result-img" id="resultImgWrap"><img id="resultImg" alt="Exported render preview"></div>
+    <p class="fine" id="resultMeta"></p>
+    <div class="result-actions">
+      <button type="button" class="primary" id="resultShare" hidden>Share / Save to Photos</button>
+      <a class="secondary" id="resultDownload" href="#" download>Download PNG</a>
+    </div>
+  </form>
+</dialog>
+<script type="module" src="./studio.js"></script>
+</body>
+</html>
