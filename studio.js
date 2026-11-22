@@ -50,27 +50,54 @@ controls.addEventListener("end", () => canvas.classList.remove("dragging"));
 let dirty = true;
 const requestRender = () => { dirty = true; };
 controls.addEventListener("change", requestRender);
+// textures that finish loading after a model is built (e.g. the Earth's land map) need a redraw
+THREE.DefaultLoadingManager.onLoad = requestRender;
+THREE.DefaultLoadingManager.onProgress = requestRender;
 
 /* ------------------------------------------------------------------ models */
-let current = null;
+let current = null, loadToken = 0;
 function dispose(obj) {
   obj.traverse((o) => {
     o.geometry?.dispose();
-    [].concat(o.material || []).forEach((m) => m.dispose());
+    [].concat(o.material || []).forEach((m) => { m.map?.dispose(); m.dispose(); });
   });
 }
-async function loadModel({ refit = false } = {}) {
+const beforeRender = (cam) => current?.userData.beforeRender?.(cam);
+async function loadModel({ refit = false, newModel = false } = {}) {
+  const token = ++loadToken;
   const def = MODELS[state.model];
   if (!def.palettes.some((p) => p.id === state.palette)) state.palette = def.defaultPalette;
-  const obj = await def.build(state.palette);
-  // centre on its bounding box so poses turn around the middle of the model
-  const c = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
-  obj.position.sub(c);
-  if (current) { pivot.remove(current); dispose(current); }
-  current = obj; pivot.add(obj);
   renderPaletteButtons();
-  if (refit) applyPreset(presets()[0], { animate: false });
+  if (newModel) applyModelDefaults(def);
+  stage.classList.add("loading");
+  const slow = setTimeout(() => toast(`Loading ${def.name}…`, 0), 250);
+  try {
+    await document.fonts?.ready;   // some models paint text (signs, plates) into canvases
+    const obj = await def.build(state.palette);
+    if (token !== loadToken) { dispose(obj); return; }   // another model was picked meanwhile
+    // centre on its bounding box so poses turn around the middle of the model
+    const c = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
+    obj.position.sub(c);
+    if (current) { pivot.remove(current); dispose(current); }
+    current = obj; pivot.add(obj);
+    clearTimeout(slow); toastEl.classList.remove("show");
+    for (const ms of [120, 600, 1500]) setTimeout(requestRender, ms);   // late image decodes, canvas textures
+    if (refit) applyPreset(presets()[0], { animate: false });
+  } catch (err) {
+    clearTimeout(slow);
+    console.error(err);
+    if (token === loadToken) toast(`Couldn't load ${def.name}: ${err.message}`, 6000);
+  } finally {
+    if (token === loadToken) stage.classList.remove("loading");
+  }
   requestRender();
+}
+/** Per-model starting light, and the grain toggle only where the model supports it. */
+function applyModelDefaults(def) {
+  state.light = def.light ?? DEFAULT_LIGHT_DEG;
+  setLightAngle(state.light);
+  $("light").value = state.light; $("light").nextElementSibling.textContent = state.light + "°";
+  $("grain").closest(".check").hidden = !def.grain;
 }
 
 /* ------------------------------------------------------------------ frame */
@@ -102,7 +129,7 @@ const tmp = new THREE.Vector3();
 function worldVertices() {
   pivot.updateMatrixWorld(true);
   const pts = [];
-  current?.traverse((o) => {
+  current?.traverseVisible((o) => {
     const pos = o.geometry?.attributes?.position;
     if (!o.isMesh || !pos) return;
     const step = Math.max(1, Math.floor(pos.count / 4000));   // plenty for a silhouette
@@ -274,7 +301,10 @@ async function shoot() {
     const cam = camera.clone();
     cam.fov = state.fov; cam.aspect = w / h;
     cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    beforeRender(cam);
     er.render(scene, cam);
+    beforeRender(camera);
 
     const out = document.createElement("canvas"); out.width = w; out.height = h;
     const ctx = out.getContext("2d");
@@ -349,7 +379,7 @@ function bindSlider(id, fmt, set) {
 }
 
 $("model").innerHTML = MODELS.map((m, i) => `<option value="${i}">${m.name}</option>`).join("");
-$("model").onchange = (e) => { state.model = +e.target.value; state.palette = null; loadModel({ refit: true }); };
+$("model").onchange = (e) => { state.model = +e.target.value; state.palette = null; loadModel({ refit: true, newModel: true }); };
 $("presets").append(...presets().map((p) => Object.assign(document.createElement("button"), { type: "button", textContent: p.label, onclick: () => applyPreset(presets().find((q) => q.label === p.label)) })));
 
 for (const k of ["yaw", "pitch", "roll"]) bindSlider(k, (v) => v + "°", (v) => { state[k] = v; applyPose(); });
@@ -414,11 +444,11 @@ function loop(now) {
     finishCamera();
   }
   controls.update();
-  if (dirty) { renderer.render(scene, camera); dirty = false; }
+  if (dirty) { beforeRender(camera); renderer.render(scene, camera); dirty = false; }
   requestAnimationFrame(loop);
 }
 
 resize();
-await loadModel({ refit: true });
+await loadModel({ refit: true, newModel: true });
 requestAnimationFrame(loop);
 window.__studio = { state, shoot, ready: true };   // handy for scripted exports

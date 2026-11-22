@@ -90,5 +90,7 @@ export default {
   defaultPalette: "lilac",
   // camera view the "Hero" preset uses for this model (azimuth / elevation in degrees)
   hero: { az: 24, el: 14 },
+  light: 139,         // landing/ferry.js LIGHT
+  grain: true,        // uses lib/flat.js, so the film-grain toggle applies
   build,
 };
