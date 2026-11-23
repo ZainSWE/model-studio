@@ -4,7 +4,7 @@
  * cyan/purple one (the landing page).
  *
  * Branding (the "Logo & name" option, for the plushie): the GenAI Genesis brain on the bow of the
- * hull, wrapped onto its round front, and "GenAI Genesis" on both flat sides of the hull. Both are
+ * hull, wrapped onto its round front, and "GenAI" over "Genesis" on both flat sides. Both are
  * centred on the hull's straight wall, sit just proud of it, are flat-shaded like the surface
  * under them, and use one solid colour each (embroidery-friendly).
  *
@@ -43,20 +43,27 @@ async function logoTexture() {
   c.getContext("2d").drawImage(img, pad, pad, W, H);
   return { tex: texture(c), aspect: c.width / c.height, fill: H / c.height };
 }
-/** "GenAI Genesis", white, cropped tight to the ink. */
-async function nameTexture(text) {
-  const px = 340, spec = `700 ${px}px ${FONT}`;   // sharp up to 8K exports
-  try { await document.fonts?.load(spec, text); } catch (_) {}
+/** Lines of text, each centred, white, cropped tight to the ink (GenAI over Genesis). */
+async function nameTexture(lines) {
+  const px = 300, spec = `700 ${px}px ${FONT}`, pad = 12, gap = Math.round(px * 0.2);
+  try { await document.fonts?.load(spec, lines.join(" ")); } catch (_) {}
   const g0 = document.createElement("canvas").getContext("2d");
   g0.font = spec;
-  const m = g0.measureText(text), pad = 12;
-  const w = Math.ceil(m.actualBoundingBoxLeft + m.actualBoundingBoxRight) + pad * 2;
-  const h = Math.ceil(m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) + pad * 2;
+  const ms = lines.map((t) => g0.measureText(t));
+  const widths = ms.map((m) => m.actualBoundingBoxLeft + m.actualBoundingBoxRight);
+  const inkH = ms.reduce((h, m) => h + m.actualBoundingBoxAscent + m.actualBoundingBoxDescent, 0) + gap * (lines.length - 1);
+  const w = Math.ceil(Math.max(...widths)) + pad * 2, h = Math.ceil(inkH) + pad * 2;
   const c = Object.assign(document.createElement("canvas"), { width: w, height: h });
   const g = c.getContext("2d");
   g.font = spec; g.fillStyle = "#ffffff"; g.textBaseline = "alphabetic";
-  g.fillText(text, pad + m.actualBoundingBoxLeft, pad + m.actualBoundingBoxAscent);
-  return { tex: texture(c), aspect: w / h, fill: (h - pad * 2) / h };
+  let y = pad;
+  lines.forEach((t, i) => {
+    const m = ms[i];
+    y += m.actualBoundingBoxAscent;
+    g.fillText(t, (w - widths[i]) / 2 + m.actualBoundingBoxLeft, y);
+    y += m.actualBoundingBoxDescent + gap;
+  });
+  return { tex: texture(c), aspect: w / h, fill: inkH / h };
 }
 function decalMaterial(tex, [color, shade]) {
   const m = flat(color, shade, 0.5);
@@ -202,9 +209,9 @@ async function build(palette = "lilac", { logo = true } = {}) {
     brain.position.y = wallY;
     boat.add(brain);
     // name: both flat sides, centred along the hull and on the wall
-    const name = await nameTexture("GenAI Genesis");
+    const name = await nameTexture(["GenAI", "Genesis"]);
     const flatLen = L - B - 0.3;                     // straight part of the side, with a margin
-    let ink = wallH * 0.5;
+    let ink = wallH * 0.8;                           // the two-line block: same 10% margin top and bottom as the brain
     if ((ink / name.fill) * name.aspect > flatLen) ink = (flatLen * name.fill) / name.aspect;
     for (const side of [1, -1]) {
       const d = decal(name, ink, brand.name);

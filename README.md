@@ -6,7 +6,7 @@ Pose our 3D models, frame the shot, and export high-res PNGs (HD up to 8K, trans
 
 | Model | Palettes | From the landing page |
 |---|---|---|
-| Toronto Island ferry | Lilac (genaigenesis.ca) · Cyan (landing page); **Logo & name** option (plushie): brain on the cabin front, "GenAI Genesis" on both hull sides | `landing/ferry.js` (FAQ) |
+| Toronto Island ferry | Lilac (genaigenesis.ca) · Cyan (landing page); **Logo & name** option (plushie): brain on the hull's bow, "GenAI" over "Genesis" on both hull sides | `landing/ferry.js` (FAQ) |
 | CN Tower | Cyan (landing page) · Mint (first hero) | `assets/cn-tower/cn-tower.glb` |
 | Toronto snow globe | Day · Night | `landing/city.js` (hero → Toronto chapter) |
 | Toronto diorama (no glass) | Day · Night | `landing/city.js`, without dome, snow and pedestal |
