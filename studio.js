@@ -18,7 +18,7 @@ const coarse = matchMedia("(pointer: coarse)").matches;   // phones / tablets
 
 const stage = $("stage"), canvas = $("view"), frameEl = $("frame");
 const state = {
-  model: 0, palette: null,
+  model: 0, palette: null, opts: {},   // opts: the model's on/off details (e.g. the ferry's logo)
   yaw: 0, pitch: 0, roll: 0,
   fov: 18, fill: 0.84, light: DEFAULT_LIGHT_DEG, grain: false,
   size: [3840, 2160], bg: "transparent",
@@ -73,7 +73,7 @@ async function loadModel({ refit = false, newModel = false } = {}) {
   const slow = setTimeout(() => toast(`Loading ${def.name}…`, 0), 250);
   try {
     await document.fonts?.ready;   // some models paint text (signs, plates) into canvases
-    const obj = await def.build(state.palette);
+    const obj = await def.build(state.palette, { ...state.opts });
     if (token !== loadToken) { dispose(obj); return; }   // another model was picked meanwhile
     // centre on its bounding box so poses turn around the middle of the model
     const c = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
@@ -92,8 +92,10 @@ async function loadModel({ refit = false, newModel = false } = {}) {
   }
   requestRender();
 }
-/** Per-model starting light, and the grain toggle only where the model supports it. */
+/** Per-model starting light, its option toggles, and the grain toggle only where the model supports it. */
 function applyModelDefaults(def) {
+  state.opts = Object.fromEntries((def.options || []).map((o) => [o.id, o.default ?? false]));
+  renderOptions(def);
   state.light = def.light ?? DEFAULT_LIGHT_DEG;
   setLightAngle(state.light);
   $("light").value = state.light; $("light").nextElementSibling.textContent = state.light + "°";
@@ -316,7 +318,8 @@ async function shoot() {
 
     const def = MODELS[state.model];
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "").replace(/(\d{8})(\d{6})/, "$1-$2");
-    const name = `${def.id}-${state.palette}-${w}x${h}-${stamp}.png`;
+    const on = Object.keys(state.opts).filter((k) => state.opts[k]);
+    const name = `${[def.id, state.palette, ...on].join("-")}-${w}x${h}-${stamp}.png`;
     if (coarse) {
       toastEl.classList.remove("show");
       showResult(blob, name, `${w} × ${h}${ss > 1 ? " · 2× supersampled" : ""} · ${(blob.size / 1e6).toFixed(1)} MB`);
@@ -371,6 +374,18 @@ function renderPaletteButtons() {
     b.innerHTML = `<span class="dot" style="--a:${ca};--b:${cb}"></span><span class="seg-text">${p.label}${p.note ? `<small>${p.note}</small>` : ""}</span>`;
     b.onclick = () => { if (state.palette !== p.id) { state.palette = p.id; loadModel(); } };
     box.append(b);
+  }
+}
+function renderOptions(def) {
+  const box = $("opts"); box.textContent = "";
+  $("optsField").hidden = !(def.options || []).length;
+  for (const o of def.options || []) {
+    const label = document.createElement("label"); label.className = "check";
+    const input = Object.assign(document.createElement("input"), { type: "checkbox", checked: !!state.opts[o.id] });
+    input.onchange = () => { state.opts[o.id] = input.checked; loadModel(); };
+    label.append(input, ` ${o.label}`);
+    if (o.note) label.append(Object.assign(document.createElement("small"), { textContent: `· ${o.note}` }));
+    box.append(label);
   }
 }
 function bindSlider(id, fmt, set) {

@@ -74,6 +74,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 .chips button:hover { transform: translateY(-1px); border-color: var(--lilac); }
 .chips button:active { transform: scale(0.96); }
 
+.opts { display: grid; gap: 8px; }
+.check small { color: var(--ink-soft); font-size: 0.78rem; }
 .check { display: flex; align-items: center; gap: 9px; font-size: 0.85rem; font-weight: 500; cursor: pointer; }
 .check input { width: 17px; height: 17px; accent-color: var(--purple); }
 

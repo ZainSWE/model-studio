@@ -6,7 +6,7 @@ Pose our 3D models, frame the shot, and export high-res PNGs (HD up to 8K, trans
 
 | Model | Palettes | From the landing page |
 |---|---|---|
-| Toronto Island ferry | Lilac (genaigenesis.ca) · Cyan (landing page) | `landing/ferry.js` (FAQ) |
+| Toronto Island ferry | Lilac (genaigenesis.ca) · Cyan (landing page); **Logo & name** option (plushie): brain on the cabin front, "GenAI Genesis" on both hull sides | `landing/ferry.js` (FAQ) |
 | CN Tower | Cyan (landing page) · Mint (first hero) | `assets/cn-tower/cn-tower.glb` |
 | Toronto snow globe | Day · Night | `landing/city.js` (hero → Toronto chapter) |
 | Toronto diorama (no glass) | Day · Night | `landing/city.js`, without dome, snow and pedestal |
@@ -70,7 +70,7 @@ The ferry is the exception: `models/ferry.js` is its own copy of the boat (with 
 | `studio.js` | Viewport, posing, framing, export |
 | `lib/flat.js` | The landing page's flat shader, with shared light and grain |
 | `models/*.js` | One adapter per model (see the table above); `models/index.js` is the registry |
-| `models/assets/` | Model files (the CN Tower `.glb`) |
+| `models/assets/` | Model files: the CN Tower `.glb`, the GenAI Genesis logo (`genai-logo.svg`, from the landing page's `assets/logo.svg`) |
 | `vendor/landing/` | Unchanged copy of the landing page's 3D modules |
 | `lib/patch.js` | Helpers for the landing-page models: uniform overrides, view-space light, cached fetch |
 | `og.png` | Link preview image for Slack, Discord, etc. |

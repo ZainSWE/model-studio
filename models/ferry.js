@@ -3,10 +3,70 @@
  * smoke left out). Two palettes: the original lilac/mint one (genaigenesis.ca) and the current
  * cyan/purple one (the landing page).
  *
+ * Branding (the "Logo & name" option, for the plushie): the GenAI Genesis brain on the front wall
+ * of the cabin, and "GenAI Genesis" on both sides of the hull, in the white band between the keel
+ * and the stripe. Both sit just proud of their walls, flat-shaded like the surface under them, in
+ * solid colours (embroidery-friendly).
+ *
  * Model module shape (see models/index.js): { id, name, source, palettes, defaultPalette, build }
  */
 import * as THREE from "three";
 import { flat } from "../lib/flat.js";
+import { assetUrl } from "../lib/patch.js";
+
+// colour + shade-side colour of the logo and the name, per palette
+const BRAND = {
+  lilac: { logo: ["#8B6CF0", "#6447D2"], name: ["#8B6CF0", "#6447D2"] },   // purple on the pale-lilac cabin and the white hull
+  cyan:  { logo: ["#ABFDF6", "#7FE3DA"], name: ["#FFFFFF", "#CFEFEF"] },   // the logo's own aqua on the purple cabin; white on cyan
+};
+const FONT = `"Google Sans Flex", "Google Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+
+let logoSrc = null;
+const logoSvg = () => (logoSrc ??= fetch(assetUrl("genai-logo.svg")).then((r) => {
+  if (!r.ok) throw new Error(`couldn't load the logo (${r.status})`);
+  return r.text();
+}));
+
+function texture(canvas) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+/** The brain, drawn white (the material supplies the colour), 1024px tall. */
+async function logoTexture() {
+  const svg = (await logoSvg()).replace(/#abfdf6/gi, "#ffffff");
+  const img = new Image();
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  await img.decode();
+  const H = 1024, W = Math.round((H * img.naturalWidth) / img.naturalHeight), pad = 16;
+  const c = Object.assign(document.createElement("canvas"), { width: W + pad * 2, height: H + pad * 2 });
+  c.getContext("2d").drawImage(img, pad, pad, W, H);
+  return { tex: texture(c), aspect: c.width / c.height, fill: H / c.height };
+}
+/** "GenAI Genesis", white, cropped tight to the ink. */
+async function nameTexture(text) {
+  const px = 340, spec = `700 ${px}px ${FONT}`;   // sharp up to 8K exports
+  try { await document.fonts?.load(spec, text); } catch (_) {}
+  const g0 = document.createElement("canvas").getContext("2d");
+  g0.font = spec;
+  const m = g0.measureText(text), pad = 12;
+  const w = Math.ceil(m.actualBoundingBoxLeft + m.actualBoundingBoxRight) + pad * 2;
+  const h = Math.ceil(m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) + pad * 2;
+  const c = Object.assign(document.createElement("canvas"), { width: w, height: h });
+  const g = c.getContext("2d");
+  g.font = spec; g.fillStyle = "#ffffff"; g.textBaseline = "alphabetic";
+  g.fillText(text, pad + m.actualBoundingBoxLeft, pad + m.actualBoundingBoxAscent);
+  return { tex: texture(c), aspect: w / h, fill: (h - pad * 2) / h };
+}
+/** A decal: a plane just off its wall, flat-shaded with the boat's light. */
+function decal({ tex, aspect, fill }, inkHeight, [color, shade]) {
+  const m = flat(color, shade, 0.5);
+  Object.assign(m, { map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const h = inkHeight / fill;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(h * aspect, h), m);
+  mesh.renderOrder = 2;
+  return mesh;
+}
 
 const MATS = {
   lilac: () => {
@@ -46,7 +106,7 @@ function block(shape, h, mat, bevel = 0.06) {
   return new THREE.Mesh(g, mat);
 }
 
-function build(palette = "lilac") {
+async function build(palette = "lilac", { logo = true } = {}) {
   const M = (MATS[palette] || MATS.lilac)();
   const boat = new THREE.Group();
   const L = 4.4, B = 1.9;
@@ -76,6 +136,27 @@ function build(palette = "lilac") {
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.5, 16), M.house); mast.position.set(0.95, roofTop + 0.78, 0); boat.add(mast);
   const fshape = new THREE.Shape(); fshape.moveTo(0, 0); fshape.lineTo(-0.32, -0.07); fshape.lineTo(0, -0.15);
   const flag = new THREE.Mesh(new THREE.ShapeGeometry(fshape), M.flag); flag.position.set(0.95, roofTop + 1.02, 0); boat.add(flag);
+
+  if (logo) {
+    const brand = BRAND[palette] || BRAND.lilac;
+    // brain: centred on the bow wall of the cabin (flat between its rounded corners: |z| < CW/2 − 0.32)
+    const brain = decal(await logoTexture(), CH * 0.8, brand.logo);
+    brain.rotation.y = Math.PI / 2;
+    brain.position.set(CL / 2 + cbev + 0.004, 0.36 + cbev + CH / 2, 0);
+    boat.add(brain);
+    // name: both sides of the hull, centred in the white band (hull wall y −0.08 … stripe ~0.30)
+    const name = await nameTexture("GenAI Genesis");
+    const hullZ = B / 2 + 0.12 + 0.004, bandY = 0.105;
+    let ink = 0.2;
+    const flatLen = L - B - 0.25;                 // straight part of the hull side, with a margin
+    if ((ink / name.fill) * name.aspect > flatLen) ink = (flatLen * name.fill) / name.aspect;
+    for (const side of [1, -1]) {
+      const d = decal(name, ink, brand.name);
+      d.rotation.y = side > 0 ? 0 : Math.PI;      // reads left-to-right from outside on both sides
+      d.position.set(0, bandY, side * hullZ);
+      boat.add(d);
+    }
+  }
   return boat;
 }
 
@@ -89,6 +170,7 @@ export default {
   ],
   defaultPalette: "lilac",
   // camera view the "Hero" preset uses for this model (azimuth / elevation in degrees)
+  options: [{ id: "logo", label: "Logo & name", note: "for the plushie", default: true }],
   hero: { az: 24, el: 14 },
   light: 139,         // landing/ferry.js LIGHT
   grain: true,        // uses lib/flat.js, so the film-grain toggle applies
