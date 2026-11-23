@@ -466,4 +466,4 @@ function loop(now) {
 resize();
 await loadModel({ refit: true, newModel: true });
 requestAnimationFrame(loop);
-window.__studio = { state, shoot, ready: true };   // handy for scripted exports
+window.__studio = { state, shoot, ready: true, get model() { return current; } };   // handy for scripted exports and checks

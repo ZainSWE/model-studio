@@ -3,10 +3,10 @@
  * smoke left out). Two palettes: the original lilac/mint one (genaigenesis.ca) and the current
  * cyan/purple one (the landing page).
  *
- * Branding (the "Logo & name" option, for the plushie): the GenAI Genesis brain on the front wall
- * of the cabin, and "GenAI Genesis" on both sides of the hull, in the white band between the keel
- * and the stripe. Both sit just proud of their walls, flat-shaded like the surface under them, in
- * solid colours (embroidery-friendly).
+ * Branding (the "Logo & name" option, for the plushie): the GenAI Genesis brain on the bow of the
+ * hull, wrapped onto its round front, and "GenAI Genesis" on both flat sides of the hull. Both are
+ * centred on the hull's straight wall, sit just proud of it, are flat-shaded like the surface
+ * under them, and use one solid colour each (embroidery-friendly).
  *
  * Model module shape (see models/index.js): { id, name, source, palettes, defaultPalette, build }
  */
@@ -14,10 +14,10 @@ import * as THREE from "three";
 import { flat } from "../lib/flat.js";
 import { assetUrl } from "../lib/patch.js";
 
-// colour + shade-side colour of the logo and the name, per palette
+// colour + shade-side colour of the logo and the name, per palette (both sit on the hull)
 const BRAND = {
-  lilac: { logo: ["#8B6CF0", "#6447D2"], name: ["#8B6CF0", "#6447D2"] },   // purple on the pale-lilac cabin and the white hull
-  cyan:  { logo: ["#ABFDF6", "#7FE3DA"], name: ["#FFFFFF", "#CFEFEF"] },   // the logo's own aqua on the purple cabin; white on cyan
+  lilac: { logo: ["#8B6CF0", "#6447D2"], name: ["#8B6CF0", "#6447D2"] },   // purple on the white hull
+  cyan:  { logo: ["#FFFFFF", "#CFEFEF"], name: ["#FFFFFF", "#CFEFEF"] },   // white on the cyan hull
 };
 const FONT = `"Google Sans Flex", "Google Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
 
@@ -58,12 +58,66 @@ async function nameTexture(text) {
   g.fillText(text, pad + m.actualBoundingBoxLeft, pad + m.actualBoundingBoxAscent);
   return { tex: texture(c), aspect: w / h, fill: (h - pad * 2) / h };
 }
-/** A decal: a plane just off its wall, flat-shaded with the boat's light. */
-function decal({ tex, aspect, fill }, inkHeight, [color, shade]) {
+function decalMaterial(tex, [color, shade]) {
   const m = flat(color, shade, 0.5);
   Object.assign(m, { map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  return m;
+}
+/** A flat decal: a plane just off a flat wall, flat-shaded with the boat's light. */
+function decal({ tex, aspect, fill }, inkHeight, colors) {
   const h = inkHeight / fill;
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(h * aspect, h), m);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(h * aspect, h), decalMaterial(tex, colors));
+  mesh.renderOrder = 2;
+  return mesh;
+}
+/**
+ * A decal wrapped onto the vertical wall of an extruded shape (block() below), following the wall
+ * exactly: the same contour points ExtrudeGeometry uses, pushed out by the same bevel (each vertex
+ * along its mitred bisector, so every offset edge stays parallel to its source edge, as three.js
+ * does), plus `lift`. The strip is centred on the contour point furthest along +x (the bow) and
+ * runs left to right as seen from the front. Returns a mesh in the shape's block space.
+ */
+function wallDecal({ tex, aspect, fill }, inkHeight, colors, shape, offset, curveSegments = 24) {
+  let pts = shape.extractPoints(curveSegments).shape;
+  pts = pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 1e-6);   // pill() has zero-length joins at the ends
+  if (pts.length > 1 && pts[0].distanceTo(pts[pts.length - 1]) < 1e-6) pts = pts.slice(0, -1);
+  const area = pts.reduce((a, p, i) => { const q = pts[(i + 1) % pts.length]; return a + p.x * q.y - q.x * p.y; }, 0);
+  const out = (dx, dy) => (area > 0 ? new THREE.Vector2(dy, -dx) : new THREE.Vector2(-dy, dx)).normalize();
+  const n = pts.length;
+  const off = pts.map((p, i) => {
+    const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
+    const n1 = out(p.x - a.x, p.y - a.y), n2 = out(b.x - p.x, b.y - p.y);
+    const m = n1.clone().add(n2).normalize();
+    return p.clone().addScaledVector(m, offset / Math.max(0.2, m.dot(n1)));
+  });
+  // walk the offset contour as a closed polyline, starting from the bow point
+  const start = off.reduce((best, p, i) => (p.x > off[best].x ? i : best), 0);
+  const ring = [...off.slice(start), ...off.slice(0, start), off[start]];
+  const cum = [0];
+  for (let i = 1; i < ring.length; i++) cum.push(cum[i - 1] + ring[i].distanceTo(ring[i - 1]));
+  const total = cum[cum.length - 1];
+  const at = (sArc) => {                       // point at arc length sArc (wraps), shape space
+    sArc = ((sArc % total) + total) % total;
+    let i = 1; while (cum[i] < sArc) i++;
+    const t = (sArc - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+    return ring[i - 1].clone().lerp(ring[i], t);
+  };
+  const h = inkHeight / fill, w = h * aspect, cols = 64;
+  // shape (x, y) → block space (x, −y): find which way along the contour is "right" seen from +x (−z)
+  const dir = at(0.01).y > 0 ? 1 : -1;        // stepping forward increases shape y → world −z → viewer's right
+  const pos = [], uv = [], idx = [];
+  for (let c = 0; c <= cols; c++) {
+    const u = c / cols, p = at(dir * (u - 0.5) * w);
+    for (const [v, y] of [[0, -h / 2], [1, h / 2]]) { pos.push(p.x, y, -p.y); uv.push(u, v); }
+  }
+  for (let c = 0; c < cols; c++) { const k = c * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  // make the faces point outward (toward +x at the bow)
+  if (g.attributes.normal.getX(cols) < 0) { g.setIndex(idx.map((_, i) => idx[i - (i % 3) + [0, 2, 1][i % 3]])); g.computeVertexNormals(); }
+  const mesh = new THREE.Mesh(g, decalMaterial(tex, colors));
   mesh.renderOrder = 2;
   return mesh;
 }
@@ -98,9 +152,10 @@ function pill(len, wid, r = wid / 2) {
   s.lineTo(-hl, -hw + r); s.quadraticCurveTo(-hl, -hw, -hl + r, -hw);
   return s;
 }
+const CURVE_SEGMENTS = 48;
 function block(shape, h, mat, bevel = 0.06) {
   // more segments than the site: these get rendered at 4K+
-  const g = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 6, curveSegments: 48 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 6, curveSegments: CURVE_SEGMENTS });
   g.rotateX(-Math.PI / 2);
   g.translate(0, bevel, 0);
   return new THREE.Mesh(g, mat);
@@ -139,21 +194,22 @@ async function build(palette = "lilac", { logo = true } = {}) {
 
   if (logo) {
     const brand = BRAND[palette] || BRAND.lilac;
-    // brain: centred on the bow wall of the cabin (flat between its rounded corners: |z| < CW/2 − 0.32)
-    const brain = decal(await logoTexture(), CH * 0.8, brand.logo);
-    brain.rotation.y = Math.PI / 2;
-    brain.position.set(CL / 2 + cbev + 0.004, 0.36 + cbev + CH / 2, 0);
+    // The hull is a stadium (pill with r = B/2) extruded 0.5 with a 0.12 bevel: its straight wall
+    // runs y −0.08 … 0.42 at distance B/2 + 0.12 from the centre line; the ends are half-circles.
+    const wallR = B / 2 + 0.12, wallY = (-0.08 + 0.42) / 2, wallH = 0.5, lift = 0.004;
+    // brain: on the bow, wrapped along the hull's real rounded outline, centred on the wall
+    const brain = wallDecal(await logoTexture(), wallH * 0.88, brand.logo, pill(L, B), 0.12 + lift, CURVE_SEGMENTS);
+    brain.position.y = wallY;
     boat.add(brain);
-    // name: both sides of the hull, centred in the white band (hull wall y −0.08 … stripe ~0.30)
+    // name: both flat sides, centred along the hull and on the wall
     const name = await nameTexture("GenAI Genesis");
-    const hullZ = B / 2 + 0.12 + 0.004, bandY = 0.105;
-    let ink = 0.2;
-    const flatLen = L - B - 0.25;                 // straight part of the hull side, with a margin
+    const flatLen = L - B - 0.3;                     // straight part of the side, with a margin
+    let ink = wallH * 0.5;
     if ((ink / name.fill) * name.aspect > flatLen) ink = (flatLen * name.fill) / name.aspect;
     for (const side of [1, -1]) {
       const d = decal(name, ink, brand.name);
-      d.rotation.y = side > 0 ? 0 : Math.PI;      // reads left-to-right from outside on both sides
-      d.position.set(0, bandY, side * hullZ);
+      d.rotation.y = side > 0 ? 0 : Math.PI;        // reads left-to-right from outside on both sides
+      d.position.set(0, wallY, side * (wallR + lift));
       boat.add(d);
     }
   }
