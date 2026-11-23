@@ -43,27 +43,67 @@ async function logoTexture() {
   c.getContext("2d").drawImage(img, pad, pad, W, H);
   return { tex: texture(c), aspect: c.width / c.height, fill: H / c.height };
 }
-/** Lines of text, each centred, white, cropped tight to the ink (GenAI over Genesis). */
+/**
+ * The GenAI Genesis wordmark as on the brand graphics ("GenAI" over "Genesis"), measured off
+ * GenAI_Genesis_back_graphic_v3: Google Sans Flex SemiBold (600), no extra tracking, lines
+ * left-aligned on their ink, the gap between them 15.7% of the first line's ink height.
+ *
+ * The brand graphics use the variable font with its optical-size axis, which tightens the letters at
+ * display sizes. Google Fonts (the site's stylesheet) only serves the weight axis, so the opsz + wght
+ * build (117 KB) is loaded here from jsDelivr (fontsource). If that fails, the weight-only font with
+ * −0.02em tracking is the closest match (within about 0.5% on both lines).
+ */
+const WORDMARK = {
+  family: "GenAI Wordmark", weight: 600, gap: 0.157, fallbackTracking: -0.02,
+  url: "https://cdn.jsdelivr.net/npm/@fontsource-variable/google-sans-flex@5.3.2/files/google-sans-flex-latin-opsz-normal.woff2",
+};
+let wordmarkFont = null;
+function loadWordmarkFont() {
+  return (wordmarkFont ??= (async () => {
+    try {
+      const f = new FontFace(WORDMARK.family, `url(${WORDMARK.url}) format("woff2")`, { weight: "1 1000" });
+      document.fonts.add(await f.load());
+      return { family: `"${WORDMARK.family}"`, tracking: 0 };
+    } catch (err) {
+      console.warn("Wordmark font: couldn't load Google Sans Flex (optical size), using the site's", err);
+      try { await document.fonts?.load(`${WORDMARK.weight} 100px ${FONT}`); } catch (_) {}
+      return { family: FONT, tracking: WORDMARK.fallbackTracking };
+    }
+  })());
+}
+/** Ink bounds of a canvas (pixels at least half covered, like a printed edge), or null if empty. */
+function inkBox(c) {
+  const { width: w, height: h } = c, d = c.getContext("2d").getImageData(0, 0, w, h).data;
+  let x0 = w, x1 = -1, y0 = h, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 127) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+/** White wordmark, cropped tight to the ink; lines placed by their drawn pixels, not font metrics. */
 async function nameTexture(lines) {
-  const px = 300, spec = `700 ${px}px ${FONT}`, pad = 12, gap = Math.round(px * 0.2);
-  try { await document.fonts?.load(spec, lines.join(" ")); } catch (_) {}
-  const g0 = document.createElement("canvas").getContext("2d");
-  g0.font = spec;
-  const ms = lines.map((t) => g0.measureText(t));
-  const widths = ms.map((m) => m.actualBoundingBoxLeft + m.actualBoundingBoxRight);
-  const inkH = ms.reduce((h, m) => h + m.actualBoundingBoxAscent + m.actualBoundingBoxDescent, 0) + gap * (lines.length - 1);
-  const w = Math.ceil(Math.max(...widths)) + pad * 2, h = Math.ceil(inkH) + pad * 2;
-  const c = Object.assign(document.createElement("canvas"), { width: w, height: h });
-  const g = c.getContext("2d");
-  g.font = spec; g.fillStyle = "#ffffff"; g.textBaseline = "alphabetic";
-  let y = pad;
-  lines.forEach((t, i) => {
-    const m = ms[i];
-    y += m.actualBoundingBoxAscent;
-    g.fillText(t, (w - widths[i]) / 2 + m.actualBoundingBoxLeft, y);
-    y += m.actualBoundingBoxDescent + gap;
+  const { family, tracking } = await loadWordmarkFont();
+  const px = 320, pad = 12;
+  const drawn = lines.map((t) => {
+    const c = Object.assign(document.createElement("canvas"), { width: Math.ceil(px * t.length * 0.9), height: Math.ceil(px * 1.6) });
+    const g = c.getContext("2d");
+    g.font = `${WORDMARK.weight} ${px}px ${family}`; g.letterSpacing = `${tracking * px}px`;
+    g.fillStyle = "#ffffff"; g.textBaseline = "alphabetic";
+    g.fillText(t, px * 0.1, px * 1.2);
+    return { c, box: inkBox(c) };
   });
-  return { tex: texture(c), aspect: w / h, fill: inkH / h };
+  const gap = Math.round(drawn[0].box.h * WORDMARK.gap);
+  const inkW = Math.max(...drawn.map((d) => d.box.w));
+  const inkH = drawn.reduce((a, d) => a + d.box.h, 0) + gap * (lines.length - 1);
+  const out = Object.assign(document.createElement("canvas"), { width: inkW + pad * 2, height: inkH + pad * 2 });
+  const g = out.getContext("2d");
+  let y = pad;
+  const m = 3;   // copy a few px past the ink box so the soft anti-aliased edge comes along
+  for (const { c, box } of drawn) {
+    g.drawImage(c, box.x - m, box.y - m, box.w + 2 * m, box.h + 2 * m, pad - m, y - m, box.w + 2 * m, box.h + 2 * m);   // every line starts at the same ink edge
+    y += box.h + gap;
+  }
+  return { tex: texture(out), aspect: out.width / out.height, fill: inkH / out.height };
 }
 function decalMaterial(tex, [color, shade]) {
   const m = flat(color, shade, 0.5);
